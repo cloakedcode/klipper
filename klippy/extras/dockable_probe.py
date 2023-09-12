@@ -445,7 +445,7 @@ class DockableProbe:
         # If the toolhead is not returned to the current position it
         # will complete the probing next to the dock.
         return_pos = self.toolhead.get_position()
-        self.auto_attach_probe(return_pos)
+        self.auto_attach_probe()
 
     def multi_probe_end(self):
         self.multi = MULTI_OFF
@@ -460,7 +460,7 @@ class DockableProbe:
     def probe_prepare(self, hmove):
         if self.multi == MULTI_OFF or self.multi == MULTI_FIRST:
             return_pos = self.toolhead.get_position()
-            self.auto_attach_probe(return_pos)
+            self.auto_attach_probe()
         if self.multi == MULTI_FIRST:
             self.multi = MULTI_ON
 
