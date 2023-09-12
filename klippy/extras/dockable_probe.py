@@ -170,18 +170,18 @@ class DockableProbe:
         self.lift_speed          = config.getfloat('lift_speed',
                                                    self.speed, above=0.)
         self.dock_retries        = config.getint('dock_retries', 0)
-        self.auto_attach_detach  = config.getboolean('auto_attach_detach',
+        self.auto_attach_dock    = config.getboolean('auto_attach_dock',
                                                      True)
         self.travel_speed        = config.getfloat('travel_speed',
                                                    self.speed, above=0.)
         self.attach_speed        = config.getfloat('attach_speed',
                                                    self.travel_speed, above=0.)
-        self.detach_speed        = config.getfloat('detach_speed',
+        self.dock_speed          = config.getfloat('dock_speed',
                                                    self.travel_speed, above=0.)
         self.sample_retract_dist = config.getfloat('sample_retract_dist',
                                                    2., above=0.)
 
-        # Positions (approach, detach, etc)
+        # Positions (approach, dock, etc)
         self.z_hop               = config.getfloat('z_hop', 0., above=0.)
 
         self.attach_route        = self._config_getcoordlists(config, 'attach_route')
@@ -231,9 +231,9 @@ class DockableProbe:
         self.gcode.register_command('ATTACH_PROBE',
                                     self.cmd_ATTACH_PROBE,
                                     desc=self.cmd_ATTACH_PROBE_help)
-        self.gcode.register_command('DETACH_PROBE',
-                                    self.cmd_DETACH_PROBE,
-                                    desc=self.cmd_DETACH_PROBE_help)
+        self.gcode.register_command('DOCK_PROBE',
+                                    self.cmd_DOCK_PROBE,
+                                    desc=self.cmd_DOCK_PROBE_help)
 
         # Event Handlers
         self.printer.register_event_handler('klippy:connect',
@@ -288,14 +288,14 @@ class DockableProbe:
 
     cmd_SET_DOCKABLE_PROBE_help = "Set probe parameters"
     def cmd_SET_DOCKABLE_PROBE(self, gcmd):
-        auto = gcmd.get('AUTO_ATTACH_DETACH', None)
+        auto = gcmd.get('AUTO_ATTACH_DOCK', None)
         if auto is None:
             return
 
         if int(auto) == 1:
-            self.auto_attach_detach = True
+            self.auto_attach_dock = True
         else:
-            self.auto_attach_detach = False
+            self.auto_attach_dock = False
 
     cmd_ATTACH_PROBE_help = "Check probe status and attach probe using" \
                             "the movement gcodes"
@@ -303,11 +303,11 @@ class DockableProbe:
         return_pos = self.toolhead.get_position()
         self.attach_probe(return_pos)
 
-    cmd_DETACH_PROBE_help = "Check probe status and detach probe using" \
+    cmd_DOCK_PROBE_help = "Check probe status and dock probe using" \
                             "the movement gcodes"
-    def cmd_DETACH_PROBE(self, gcmd):
+    def cmd_DOCK_PROBE(self, gcmd):
         return_pos = self.toolhead.get_position()
-        self.detach_probe(return_pos)
+        self.dock_probe(return_pos)
 
     def attach_probe(self, return_pos=None):
         retry = 0
@@ -342,7 +342,7 @@ class DockableProbe:
             # Do NOT return to the original Z position after attach
             # as the probe might crash into the bed.
 
-    def detach_probe(self, return_pos=None):
+    def dock_probe(self, return_pos=None):
         retry = 0
         while (self.get_probe_state() != PROBE_DOCKED
                and retry < self.dock_retries + 1):
@@ -351,7 +351,7 @@ class DockableProbe:
             
             travel = True
             for position in self.dock_route:
-                speed = self.travel_speed if travel else self.detach_speed
+                speed = self.travel_speed if travel else self.dock_speed
                 travel = False
                 z_pos = None if len(position) <= 2 else position[2]
                 
@@ -361,7 +361,7 @@ class DockableProbe:
             retry += 1
 
         if self.get_probe_state() != PROBE_DOCKED:
-            raise self.printer.command_error('Probe detach failed!')
+            raise self.printer.command_error('Probe dock failed!')
         
         self._align_z()
 
@@ -369,22 +369,22 @@ class DockableProbe:
             self.toolhead.manual_move(
                 [return_pos[0], return_pos[1], None],
                 self.travel_speed)
-            # Return to original Z position after detach as
+            # Return to original Z position after dock as
             # there's no chance of the probe crashing into the bed.
             self.toolhead.manual_move(
                 [None, None, return_pos[2]],
                 self.travel_speed)
 
-    def auto_detach_probe(self, return_pos=None):
+    def auto_dock_probe(self, return_pos=None):
         if self.get_probe_state() == PROBE_DOCKED:
            return
-        if self.auto_attach_detach:
-            self.detach_probe(return_pos)
+        if self.auto_attach_dock:
+            self.dock_probe(return_pos)
 
     def auto_attach_probe(self, return_pos=None):
         if self.get_probe_state() == PROBE_ATTACHED:
            return
-        if not self.auto_attach_detach:
+        if not self.auto_attach_dock:
             raise self.printer.command_error("Cannot probe, probe is not " \
                                         "attached and auto-attach is disabled")
         self.attach_probe(return_pos)
@@ -452,10 +452,10 @@ class DockableProbe:
 
         return_pos = self.toolhead.get_position()
         # Move away from the bed to ensure the probe isn't triggered,
-        # preventing detaching in the event there's no probe/dock sensor.
+        # preventing docking in the event there's no probe/dock sensor.
         self.toolhead.manual_move([None, None, return_pos[2]+2],
                                   self.travel_speed)
-        self.auto_detach_probe(return_pos)
+        self.auto_dock_probe(return_pos)
 
     def probe_prepare(self, hmove):
         if self.multi == MULTI_OFF or self.multi == MULTI_FIRST:
@@ -469,10 +469,10 @@ class DockableProbe:
         if self.multi == MULTI_OFF:
             return_pos = self.toolhead.get_position()
             # Move away from the bed to ensure the probe isn't triggered,
-            # preventing detaching in the event there's no probe/dock sensor.
+            # preventing docking in the event there's no probe/dock sensor.
             self.toolhead.manual_move([None, None, return_pos[2]+2],
                                       self.travel_speed)
-            self.auto_detach_probe(return_pos)
+            self.auto_dock_probe(return_pos)
 
     def home_start(self, print_time, sample_time, sample_count, rest_time,
                    triggered=True):
