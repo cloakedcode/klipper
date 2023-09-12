@@ -451,10 +451,9 @@ class DockableProbe:
         self.multi = MULTI_OFF
 
         return_pos = self.toolhead.get_position()
-        # Move away from the bed to ensure the probe isn't triggered,
+        # Move to z hop to ensure the probe isn't triggered,
         # preventing docking in the event there's no probe/dock sensor.
-        self.toolhead.manual_move([None, None, return_pos[2]+2],
-                                  self.travel_speed)
+        self._align_z()
         self.auto_dock_probe(return_pos)
 
     def probe_prepare(self, hmove):
@@ -468,10 +467,9 @@ class DockableProbe:
         self.wait_trigger_complete.wait()
         if self.multi == MULTI_OFF:
             return_pos = self.toolhead.get_position()
-            # Move away from the bed to ensure the probe isn't triggered,
+            # Move to z hop to ensure the probe isn't triggered,
             # preventing docking in the event there's no probe/dock sensor.
-            self.toolhead.manual_move([None, None, return_pos[2]+2],
-                                      self.travel_speed)
+            self._align_z()
             self.auto_dock_probe(return_pos)
 
     def home_start(self, print_time, sample_time, sample_count, rest_time,
