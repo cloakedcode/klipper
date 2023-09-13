@@ -209,6 +209,7 @@ class DockableProbe:
         self.last_z = -9999
         self.multi = MULTI_OFF
         self._last_homed = None
+        self._return_pos = None
 
         pstate = ProbeState(config, self)
         self.get_probe_state = pstate.get_probe_state
@@ -444,21 +445,21 @@ class DockableProbe:
         # point but for the latter the toolhead is already in position.
         # If the toolhead is not returned to the current position it
         # will complete the probing next to the dock.
-        return_pos = self.toolhead.get_position()
+        self._return_pos = self.toolhead.get_position()
         self.auto_attach_probe()
 
     def multi_probe_end(self):
         self.multi = MULTI_OFF
 
-        return_pos = self.toolhead.get_position()
         # Move to z hop to ensure the probe isn't triggered,
         # preventing docking in the event there's no probe/dock sensor.
         self._align_z()
-        self.auto_dock_probe(return_pos)
+        self.auto_dock_probe(self._return_pos)
 
     def probe_prepare(self, hmove):
         if self.multi == MULTI_OFF or self.multi == MULTI_FIRST:
-            return_pos = self.toolhead.get_position()
+            if self._return_pos is None:
+                self._return_pos = self.toolhead.get_position()
             self.auto_attach_probe()
         if self.multi == MULTI_FIRST:
             self.multi = MULTI_ON
@@ -466,11 +467,10 @@ class DockableProbe:
     def probe_finish(self, hmove):
         self.wait_trigger_complete.wait()
         if self.multi == MULTI_OFF:
-            return_pos = self.toolhead.get_position()
             # Move to z hop to ensure the probe isn't triggered,
             # preventing docking in the event there's no probe/dock sensor.
             self._align_z()
-            self.auto_dock_probe(return_pos)
+            self.auto_dock_probe(self._return_pos)
 
     def home_start(self, print_time, sample_time, sample_count, rest_time,
                    triggered=True):
