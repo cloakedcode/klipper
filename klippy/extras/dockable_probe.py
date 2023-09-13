@@ -334,6 +334,8 @@ class DockableProbe:
         if self.get_probe_state() != PROBE_ATTACHED:
             raise self.printer.command_error('Probe attach failed!')
         
+        self.gcode.respond_info("Probe attached!")
+        
         self._align_z()
 
         if return_pos:
@@ -363,6 +365,8 @@ class DockableProbe:
 
         if self.get_probe_state() != PROBE_DOCKED:
             raise self.printer.command_error('Probe dock failed!')
+        
+        self.gcode.respond_info("Probe docked!")
         
         self._align_z()
 
