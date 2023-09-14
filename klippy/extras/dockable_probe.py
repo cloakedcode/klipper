@@ -164,8 +164,6 @@ class DockableProbe:
 
         # Configuration Options
         self.position_endstop    = config.getfloat('z_offset')
-        self.x_offset            = config.getfloat('x_offset', 0.)
-        self.y_offset            = config.getfloat('y_offset', 0.)
         self.speed               = config.getfloat('speed', 5.0, above=0.)
         self.lift_speed          = config.getfloat('lift_speed',
                                                    self.speed, above=0.)
@@ -178,8 +176,6 @@ class DockableProbe:
                                                    self.travel_speed, above=0.)
         self.dock_speed          = config.getfloat('dock_speed',
                                                    self.travel_speed, above=0.)
-        self.sample_retract_dist = config.getfloat('sample_retract_dist',
-                                                   2., above=0.)
 
         # Positions (approach, dock, etc)
         self.z_hop               = config.getfloat('z_hop', 0., above=0.)
