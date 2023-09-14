@@ -1907,27 +1907,25 @@ for more detailed information regarding configuration and setup.
 
 ```
 [dockable_probe]
-dock_position: 0,0,0
-#   The physical position of the probe dock relative to the origin of
+attach_route:
+  0.0, 0.0
+  0.0, 0.0, 1.0
+  0.0, 10.0
+#   The physical positions of the toolhead relative to the origin of
 #   the bed. The coordinates are specified as a comma separated X, Y, Z
-#   list of values. Certain dock designs are independent of the Z axis.
-#   If Z is specified the toolhead will move to the Z location before the X, Y
-#   coordinates.
+#   list of values, where Z is optional. Certain dock designs are
+#   independent of the Z axis. The toolhead will walk through these
+#   locations in the given order when the probe needs to be attached.
 #   This parameter is required.
-approach_position: 0,0,0
-#   The X, Y, Z position where the toolhead needs to be prior to moving into the
-#   dock so that the probe is aligned properly for attaching or detaching.
-#   If Z is specified the toolhead will move to the Z location before the X, Y
-#   coordinates.
-#   This parameter is required.
-detach_position: 0,0,0
-#   Similar to the approach_position, the detach_position is the coordinates
-#   where the toolhead is moved after the probe has been docked.
-#   For magnetically coupled probes, this is typically perpendicular to
-#   the approach_position in a direction that does not cause the tool to
-#   collide with the printer.
-#   If Z is specified the toolhead will move to the Z location before the X, Y
-#   coordinates.
+dock_route:
+  0.0, 10.0
+  0.0, 10.0, 1.0
+  0.0, 0.0
+#   The physical positions of the toolhead relative to the origin of
+#   the bed. The coordinates are specified as a comma separated X, Y, Z
+#   list of values, where Z is optional. Certain dock designs are
+#   independent of the Z axis. The toolhead will walk through these
+#   locations in the given order when the probe needs to be docked.
 #   This parameter is required.
 #z_hop: 15.0
 #   Distance (in mm) to lift the Z axis prior to attaching/detaching the probe.
@@ -1944,7 +1942,7 @@ detach_position: 0,0,0
 #   actions that require the probe.
 #   The default is True.
 #attach_speed:
-#detach_speed:
+#dock_speed:
 #travel_speed:
 #   Optional speeds used during moves.
 #   The default is to use `speed` of `probe` or 5.0.

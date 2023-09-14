@@ -312,20 +312,12 @@ commands are available when a
 
 - `ATTACH_PROBE`: Move to dock and attach probe to the toolhead, the toolhead
   will return to its previous position after attaching.
-- `DETACH_PROBE`: Move to dock and detach probe from the toolhead, the toolhead
+- `DOCK_PROBE`: Move to dock and detach probe from the toolhead, the toolhead
   will return to its previous position after detaching.
 - `QUERY_DOCKABLE_PROBE`: Respond with current probe state. This is useful for
   verifying configuration settings are working as intended.
 - `SET_DOCKABLE_PROBE AUTO_ATTACH_DETACH=0|1`: Enable/Disable the automatic
   attaching/detaching of the probe during actions that require the probe.
-- `MOVE_TO_APPROACH_PROBE`: Move to approach the probe dock.
-- `MOVE_TO_DOCK_PROBE`: Move to the probe dock (this should trigger the probe
-  to attach).
-- `MOVE_TO_EXTRACT_PROBE`: Move to leave the dock with the probe attached.
-- `MOVE_TO_INSERT_PROBE`: Move to insert position near the dock
-  with the probe attached.
-- `MOVE_TO_DETACH_PROBE`: Move away from the dock to disconnect the probe
-  from the toolhead.
 
 ### [dual_carriage]
 
