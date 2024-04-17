@@ -19,19 +19,22 @@ for `[probe]` are valid for `[dockable_probe]`.
 pin:
 z_offset:
 sample_retract_dist:
-approach_position:
-dock_position:
-detach_position:
+attach_route:
+dock_route:
 (check_open_attach: OR probe_sense_pin:) AND/OR dock_sense_pin:
 ```
 
-### Attaching and Detaching Positions
+### Attaching and Docking Routes
 
-- `dock_position: 300, 295, 0`\
+- `attach_route:`\
   _Required_\
-  This is the XYZ coordinates where the toolhead needs to be positioned
-  in order to attach the probe. This parameter is X, Y and, Z separated
-  by commas.
+  This is the route of coordinates the toolhead follows in order to attach
+  the probe. Each line contains X, Y, and optional Z, separated by commas.
+  
+  The most common dock designs use a fork or arms that extend out from the dock.
+  In order to attach the probe to the toolhead, the toolhead must move into and
+  away from the dock to a particular position so these arms can capture the
+  probe body.
 
   Many configurations have the dock attached to a moving gantry. This
   means that Z axis positioning is irrelevant. However, it may be necessary
@@ -43,39 +46,20 @@ detach_position:
   configuration the Z axis parameter _must_ be supplied, and the Z axis
   _must_ be homed prior to attaching the probe.
 
-- `approach_position: 300, 250, 0`\
+- `dock_route:`
   _Required_\
-  The most common dock designs use a fork or arms that extend out from the dock.
-  In order to attach the probe to the toolhead, the toolhead must move into and
-  away from the dock to a particular position so these arms can capture the
-  probe body.
+  Identical to `attach_route`, but used for putting the probe back into the dock.
 
-  As with `dock_position`, a Z position is not required but if specified the
-  toolhead will be moved to that Z location before the X, Y coordinates.
-
-  For magnetically coupled probes, the `approach_position` should be far enough
-  away from the probe dock such that the magnets on the probe body are not
-  attracted to the magnets on the toolhead.
-
-- `detach_position: 250, 295, 0`\
-  _Required_\
   Most probes with magnets require the toolhead to move in a direction that
   strips the magnets off with a sliding motion. This is to prevent the magnets
   from becoming unseated from repeated pulling and thus affecting probe accuracy.
-  The `detach_position` is typically defined as a point that is perpendicular to
-  the dock so that when the toolhead moves, the probe stays docked but cleanly
+  When creating the `dock_route` make sure that decoupling happens perpendicular
+  to the dock so that when the toolhead moves, the probe stays docked but cleanly
   detaches from the toolhead mount.
-
-  As with `dock_position`, a Z position is not required but if specified the
-  toolhead will be moved to that Z location before the X, Y coordinates.
-
-  For magnetically coupled probes, the `detach_position` should be far enough
-  away from the probe dock such that the magnets on the probe body are not
-  attracted to the magnets on the toolhead.
 
 - `z_hop: 15.0`\
   _Default Value: None_\
-  Distance (in mm) to lift the Z axis prior to attaching/detaching the probe.
+  Distance (in mm) to lift the Z axis prior to attaching/docking the probe.
   If the Z axis is already homed and the current Z position is less
   than `z_hop`, then this will lift the head to a height of `z_hop`. If
   the Z axis is not already homed the head is lifted by `z_hop`.
@@ -96,9 +80,14 @@ will move back, and then to the side.
 ```
 
 ```
-approach_position: 150, 300, 5
-dock_position: 150, 330, 5
-detach_position: 170, 330
+attach_route:
+  150, 300, 5
+  150, 330, 5
+  150, 300
+dock_route:
+  150, 300, 5
+  150, 330, 5
+  170, 330
 ```
 
 
@@ -116,9 +105,14 @@ forward.
 ```
 
 ```
-approach_position: 50, 150
-dock_position: 10, 150
-detach_position: 10, 130
+attach_route:
+  50, 150
+  10, 150
+  50, 150
+dock_route:
+  50, 150
+  10, 150
+  10, 130
 ```
 
 
@@ -135,19 +129,21 @@ as above.
 ```
 
 ```
-approach_position: 50, 150
-dock_position: 10, 150
-detach_position: 10, 130
+attach_route:
+  50, 150
+  10, 150
+  50, 150
+dock_route:
+  50, 150
+  10, 150
+  10, 130
 z_hop: 15
 ```
 
 
-Euclid style probe that requires the attach and detach movements to happen in
-opposite order. Attach: approach, move to dock, extract. Detach: move to
-extract position, move to dock, move to approach position. The approach and
-detach positions are the same, as are the extract and insert positions. The
-movements can be reordered as necessary by overriding the commands for
-extract/insert and using the same coordinates for approach and detach.
+Euclid style probe that requires the attach and dock movements to happen in
+opposite order. To attach the probe, the toolhead will move to the side and forward.
+To detach, the toolhead will move back, and then to the side.
 
 ```
 Attach:
@@ -156,7 +152,7 @@ Attach:
 | p<     |
 | v      |
 +--------+
-Detach:
+Dock:
 +--------+
 |        |
 | p>     |
@@ -165,20 +161,15 @@ Detach:
 ```
 
 ```
-approach_position: 50, 150
-dock_position: 10, 150
-detach_position: 50, 150
+attach_route:
+  50, 150
+  10, 150
+  10, 130
+dock_route:
+  10, 130
+  10, 150
+  50, 150
 z_hop: 15
-```
-
-```
-[gcode_macro MOVE_TO_EXTRACT_PROBE]
-gcode:
-    G1 X10 Y130
-
-[gcode_macro MOVE_TO_INSERT_PROBE]
-gcode:
-    G1 X10 Y130
 ```
 
 ### Homing
@@ -242,16 +233,17 @@ methods can be used to verify probe attachment states.
 
 - `attach_speed: 5.0`\
   _Default Value: Probe `speed` or 5_\
-  Movement speed when attaching the probe during `MOVE_TO_DOCK_PROBE`.
+  Movement speed when attaching the probe during `ATTACH_PROBE`.
 
-- `detach_speed: 5.0`\
+- `dock_speed: 5.0`\
   _Default Value: Probe `speed` or 5_\
-  Movement speed when detaching the probe during `MOVE_TO_DETACH_PROBE`.
+  Movement speed when docking the probe during `DOCK_PROBE`.
 
 - `travel_speed: 5.0`\
   _Default Value: Probe `speed` or 5_\
-  Movement speed when approaching the probe during `MOVE_TO_APPROACH_PROBE`
-  and returning the toolhead to its previous position after attach/detach.
+  Movement speed when moving to the first position of `attach_route` and
+  `dock_route` and returning the toolhead to its previous position after
+  attach/detach.
 
 ## Dockable Probe Gcodes
 
@@ -263,49 +255,11 @@ This command will move the toolhead to the dock, attach the probe, and return
 it to its previous position. If the probe is already attached, the command
 does nothing.
 
-This command will call `MOVE_TO_APPROACH_PROBE`, `MOVE_TO_DOCK_PROBE`,
-and `MOVE_TO_EXTRACT_PROBE`.
+`DOCK_PROBE`
 
-`DETACH_PROBE`
-
-This command will move the toolhead to the dock, detach the probe, and return
-it to its previous position. If the probe is already detached, the command
+This command will move the toolhead to the dock, dock the probe, and return
+it to its previous position. If the probe is already docked, the command
 will do nothing.
-
-This command will call `MOVE_TO_APPROACH_PROBE`, `MOVE_TO_DOCK_PROBE`,
-and `MOVE_TO_DETACH_PROBE`.
-
-### Individual Movements
-
-These commands are useful during setup to prevent the full attach/detach
-sequence from crashing into the bed or damaging the probe/dock.
-
-If your probe has special setup/teardown steps (e.g. moving a servo),
-accommodating that could be accomplished by overriding these gcodes.
-
-`MOVE_TO_APPROACH_PROBE`
-
-This command will move the toolhead to the `approach_position`. It can be
-overridden to move a servo if that's required for attaching your probe.
-
-`MOVE_TO_DOCK_PROBE`
-
-This command will move the toolhead to the `dock_position`.
-
-`MOVE_TO_EXTRACT_PROBE`
-
-This command will move the toolhead away from the dock after attaching the probe.
-By default it's an alias for `MOVE_TO_APPROACH_PROBE`.
-
-`MOVE_TO_INSERT_PROBE`
-
-This command will move the toolhead near the dock before detaching the probe.
-By default it's an alias for `MOVE_TO_APPROACH_PROBE`.
-
-`MOVE_TO_DETACH_PROBE`
-
-This command will move the toolhead to the `detach_position`. It can be
-overridden to move a servo if that's required for detaching your probe.
 
 ### Status
 
@@ -317,7 +271,7 @@ to confirm probe configuration is working as intended.
 
 `SET_DOCKABLE_PROBE AUTO_ATTACH_DETACH=0|1`
 
-Enable/Disable the automatic attaching/detaching of the probe during
+Enable/Disable the automatic attaching/docking of the probe during
 actions that require the probe.
 
 This command can be helpful in print-start macros where multiple actions will
@@ -330,7 +284,7 @@ G28
 ATTACH_PROBE                             # Explicitly attach the probe
 QUAD_GANTRY_LEVEL                        # Tram the gantry parallel to the bed
 BED_MESH_CALIBRATE                       # Create a bed mesh
-DETACH_PROBE                             # Manually detach the probe
+DOCK_PROBE                               # Manually detach the probe
 SET_DOCKABLE_PROBE AUTO_ATTACH_DETACH=1  # Make sure the probe is attached in future
 ```
 
@@ -347,21 +301,9 @@ SET_DOCKABLE_PROBE AUTO_ATTACH_DETACH=1  # Make sure the probe is attached in fu
 
     - The toolhead position is compared to the dock position.
 
-    - If the toolhead is outside of the minimum safe radius, the toolhead is
-      commanded to move to the approach vector, that is, a position that is
-      the minimum safe distance from the dock in line with the dock angle.
-      (MOVE_TO_APPROACH_PROBE)
-
-    - If the toolhead is inside of the minimum safe radius, the toolhead is
-      commanded to move to the nearest point on the line of the approach vector.
-      (MOVE_TO_APPROACH_PROBE)
-
-    - The tool is moved along the approach vector to the dock coordinates.
-    (MOVE_TO_DOCK_PROBE)
-
-    - The toolhead is commanded to move out of the dock back to the minimum
-      safe distance in the reverse direction along the dock angle.
-      (MOVE_TO_EXTRACT_PROBE)
+    - The toolhead will go to the first position of `attach_route` at `travel_speed`
+      and continue following the given coordinates at `attach_speed`.
+      (ATTACH_PROBE)
 
     - If configured, the probe is checked to see if it is attached.
 
@@ -380,20 +322,9 @@ SET_DOCKABLE_PROBE AUTO_ATTACH_DETACH=1  # Make sure the probe is attached in fu
 
     - The toolhead position is compared to the dock position.
 
-    - If the toolhead is outside of the minimum safe radius, the toolhead is
-      commanded to move to the approach vector, that is, a position that is
-      the minimum safe distance from the dock in line with the dock angle.
-      (MOVE_TO_APPROACH_PROBE)
-
-    - If the toolhead is inside of the minimum safe radius, the toolhead is
-      commanded to move to the nearest point on the line of the approach vector.
-      (MOVE_TO_APPROACH_PROBE)
-
-    - The toolhead is moved along the approach vector to the dock coordinates.
-    (MOVE_TO_DOCK_PROBE)
-
-    - The toolhead is commanded to move along the detach vector if supplied or a
-      calculated direction based on axis parameters. (MOVE_TO_DETACH_PROBE)
+    - The toolhead will go to the first position of `dock_route` at `travel_speed`
+      and continue following the given coordinates at `dock_speed`.
+      (DOCK_PROBE)
 
     - If configured, the probe is checked to see if it detached.
 

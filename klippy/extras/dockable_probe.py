@@ -34,12 +34,12 @@ Please see {0}.md and config_Reference.md.
 
 HINT_VIRTUAL_ENDSTOP_ERROR = """
 {0}: Using a 'probe:z_virtual_endstop' Z endstop is
-incompatible with 'approach_position'/'dock_position'
+incompatible with 'attach_route'/'dock_route'
 containing a Z coordinate.
 
 If the toolhead doesn't need to move in Z to reach the
 dock then no Z coordinate should be specified in
-'approach_position'/'dock_position'.
+'attach_route'/'dock_route'.
 
 Please see {0}.md and config_Reference.md.
 """
@@ -164,38 +164,26 @@ class DockableProbe:
 
         # Configuration Options
         self.position_endstop    = config.getfloat('z_offset')
-        self.x_offset            = config.getfloat('x_offset', 0.)
-        self.y_offset            = config.getfloat('y_offset', 0.)
         self.speed               = config.getfloat('speed', 5.0, above=0.)
         self.lift_speed          = config.getfloat('lift_speed',
                                                    self.speed, above=0.)
         self.dock_retries        = config.getint('dock_retries', 0)
-        self.auto_attach_detach  = config.getboolean('auto_attach_detach',
+        self.auto_attach_dock    = config.getboolean('auto_attach_dock',
                                                      True)
         self.travel_speed        = config.getfloat('travel_speed',
                                                    self.speed, above=0.)
         self.attach_speed        = config.getfloat('attach_speed',
                                                    self.travel_speed, above=0.)
-        self.detach_speed        = config.getfloat('detach_speed',
+        self.dock_speed          = config.getfloat('dock_speed',
                                                    self.travel_speed, above=0.)
-        self.sample_retract_dist = config.getfloat('sample_retract_dist',
-                                                   2., above=0.)
 
-        # Positions (approach, detach, etc)
-        self.approach_position = self._parse_coord(config, 'approach_position')
-        self.detach_position   = self._parse_coord(config, 'detach_position')
-        self.dock_position     = self._parse_coord(config, 'dock_position')
-        self.z_hop             = config.getfloat('z_hop', 0., above=0.)
+        # Positions (approach, dock, etc)
+        self.z_hop               = config.getfloat('z_hop', 0., above=0.)
 
-        self.dock_requires_z = (len(self.approach_position) > 2
-                                or len(self.dock_position) > 2)
-
-        self.dock_angle, self.approach_distance = self._get_vector(
-                                                        self.dock_position,
-                                                        self.approach_position)
-        self.detach_angle, self.detach_distance = self._get_vector(
-                                                        self.dock_position,
-                                                        self.detach_position)
+        self.attach_route        = self._config_getcoordlists(config, 'attach_route')
+        self.dock_route          = self._config_getcoordlists(config, 'dock_route')
+        self.dock_requires_z     = max(list(map(lambda coords: len(coords),
+                                                   self.attach_route + self.dock_route))) > 2
 
         # Pins
         ppins = self.printer.lookup_object('pins')
@@ -217,6 +205,7 @@ class DockableProbe:
         self.last_z = -9999
         self.multi = MULTI_OFF
         self._last_homed = None
+        self._return_pos = None
 
         pstate = ProbeState(config, self)
         self.get_probe_state = pstate.get_probe_state
@@ -233,57 +222,28 @@ class DockableProbe:
                                     self.cmd_QUERY_DOCKABLE_PROBE,
                                     desc=self.cmd_QUERY_DOCKABLE_PROBE_help)
 
-        self.gcode.register_command('MOVE_TO_APPROACH_PROBE',
-                                    self.cmd_MOVE_TO_APPROACH_PROBE,
-                                    desc=self.cmd_MOVE_TO_APPROACH_PROBE_help)
-        self.gcode.register_command('MOVE_TO_DOCK_PROBE',
-                                    self.cmd_MOVE_TO_DOCK_PROBE,
-                                    desc=self.cmd_MOVE_TO_DOCK_PROBE_help)
-        self.gcode.register_command('MOVE_TO_EXTRACT_PROBE',
-                                    self.cmd_MOVE_TO_EXTRACT_PROBE,
-                                    desc=self.cmd_MOVE_TO_EXTRACT_PROBE_help)
-        self.gcode.register_command('MOVE_TO_INSERT_PROBE',
-                                    self.cmd_MOVE_TO_INSERT_PROBE,
-                                    desc=self.cmd_MOVE_TO_INSERT_PROBE_help)
-        self.gcode.register_command('MOVE_TO_DETACH_PROBE',
-                                    self.cmd_MOVE_TO_DETACH_PROBE,
-                                    desc=self.cmd_MOVE_TO_DETACH_PROBE_help)
-
         self.gcode.register_command('SET_DOCKABLE_PROBE',
                                     self.cmd_SET_DOCKABLE_PROBE,
                                     desc=self.cmd_SET_DOCKABLE_PROBE_help)
         self.gcode.register_command('ATTACH_PROBE',
                                     self.cmd_ATTACH_PROBE,
                                     desc=self.cmd_ATTACH_PROBE_help)
-        self.gcode.register_command('DETACH_PROBE',
-                                    self.cmd_DETACH_PROBE,
-                                    desc=self.cmd_DETACH_PROBE_help)
+        self.gcode.register_command('DOCK_PROBE',
+                                    self.cmd_DOCK_PROBE,
+                                    desc=self.cmd_DOCK_PROBE_help)
 
         # Event Handlers
         self.printer.register_event_handler('klippy:connect',
                                             self._handle_connect)
 
-    # Parse a string coordinate representation from the config
-    # and return a list of numbers.
-    #
-    # e.g. "233, 10, 0" -> [233, 10, 0]
-    def _parse_coord(self, config, name, expected_dims=3):
-        val = config.get(name)
-        error_msg = "Unable to parse {0} in {1}: {2}"
-        if not val:
-            return None
-        try:
-            vals = [float(x.strip()) for x in val.split(',')]
-        except Exception as e:
-            raise config.error(error_msg.format(name, self.name, str(e)))
-        supplied_dims = len(vals)
-        if not 2 <= supplied_dims <= expected_dims:
-            raise config.error(error_msg.format(name, self.name,
+    def _config_getcoordlists(self, config, name, min_dims=2, max_dims=3):
+        val = config.getlists(name, seps=(',', '\n'), parser=float)
+        for coord in val:
+            if not min_dims <= len(coord) <= max_dims:
+                raise config.error("Unable to parse {0} in {1}: {2}".format(name, self.name,
                                 "Invalid number of coordinates"))
-        p = [None] * supplied_dims
-        p[:supplied_dims] = vals
-        return p
-
+        return val
+    
     def _build_config(self):
         kin = self.printer.lookup_object('toolhead').get_kinematics()
         for stepper in kin.get_steppers():
@@ -293,8 +253,8 @@ class DockableProbe:
     def _handle_connect(self):
         self.toolhead = self.printer.lookup_object('toolhead')
 
-        # If neither position config options contain a Z coordinate return early
-        if not self.dock_requires_z:
+        # If no z hop necessary return early
+        if self.z_hop <= 0.0:
             return
 
         query_endstops = self.printer.lookup_object('query_endstops')
@@ -323,66 +283,16 @@ class DockableProbe:
             'last_status': self.last_probe_state,
         }
 
-    cmd_MOVE_TO_APPROACH_PROBE_help = "Move close to the probe dock" \
-                                    "before attaching"
-    def cmd_MOVE_TO_APPROACH_PROBE(self, gcmd):
-        self._align_z()
-
-        if self._check_distance(dist=self.approach_distance):
-            self._align_to_vector(self.dock_angle)
-        else:
-            self._move_to_vector(self.dock_angle)
-
-        if len(self.approach_position) > 2:
-            self.toolhead.manual_move([None, None, self.approach_position[2]],
-                                      self.travel_speed)
-
-        self.toolhead.manual_move(
-            [self.approach_position[0], self.approach_position[1], None],
-             self.travel_speed)
-
-    cmd_MOVE_TO_DOCK_PROBE_help = "Move to connect the toolhead/dock" \
-                                "to the probe"
-    def cmd_MOVE_TO_DOCK_PROBE(self, gcmd):
-        if len(self.dock_position) > 2:
-            self.toolhead.manual_move([None, None, self.dock_position[2]],
-                                      self.attach_speed)
-
-        self.toolhead.manual_move(
-            [self.dock_position[0], self.dock_position[1], None],
-             self.attach_speed)
-
-    cmd_MOVE_TO_EXTRACT_PROBE_help = "Move away from the dock with the" \
-                                "probe attached"
-    def cmd_MOVE_TO_EXTRACT_PROBE(self, gcmd):
-        self.cmd_MOVE_TO_APPROACH_PROBE(gcmd)
-
-    cmd_MOVE_TO_INSERT_PROBE_help = "Move near the dock with the" \
-                                "probe attached before detaching"
-    def cmd_MOVE_TO_INSERT_PROBE(self, gcmd):
-        self.cmd_MOVE_TO_APPROACH_PROBE(gcmd)
-
-    cmd_MOVE_TO_DETACH_PROBE_help = "Move away from the dock to detach" \
-                                "the probe"
-    def cmd_MOVE_TO_DETACH_PROBE(self, gcmd):
-        if len(self.detach_position) > 2:
-            self.toolhead.manual_move([None, None, self.detach_position[2]],
-                                      self.detach_speed)
-
-        self.toolhead.manual_move(
-            [self.detach_position[0], self.detach_position[1], None],
-             self.detach_speed)
-
     cmd_SET_DOCKABLE_PROBE_help = "Set probe parameters"
     def cmd_SET_DOCKABLE_PROBE(self, gcmd):
-        auto = gcmd.get('AUTO_ATTACH_DETACH', None)
+        auto = gcmd.get('AUTO_ATTACH_DOCK', None)
         if auto is None:
             return
 
         if int(auto) == 1:
-            self.auto_attach_detach = True
+            self.auto_attach_dock = True
         else:
-            self.auto_attach_detach = False
+            self.auto_attach_dock = False
 
     cmd_ATTACH_PROBE_help = "Check probe status and attach probe using" \
                             "the movement gcodes"
@@ -390,11 +300,11 @@ class DockableProbe:
         return_pos = self.toolhead.get_position()
         self.attach_probe(return_pos)
 
-    cmd_DETACH_PROBE_help = "Check probe status and detach probe using" \
+    cmd_DOCK_PROBE_help = "Check probe status and dock probe using" \
                             "the movement gcodes"
-    def cmd_DETACH_PROBE(self, gcmd):
+    def cmd_DOCK_PROBE(self, gcmd):
         return_pos = self.toolhead.get_position()
-        self.detach_probe(return_pos)
+        self.dock_probe(return_pos)
 
     def attach_probe(self, return_pos=None):
         retry = 0
@@ -403,69 +313,79 @@ class DockableProbe:
             if self.get_probe_state() != PROBE_DOCKED:
                 raise self.printer.command_error(
                     'Attach Probe: Probe not detected in dock, aborting')
-            # Call these gcodes as a script because we don't have enough
-            # structs/data to call the cmd_...() funcs and supply 'gcmd'.
-            # This method also has the advantage of calling user-written gcodes
-            # if they've been defined.
-            self.gcode.run_script_from_command("""
-                MOVE_TO_APPROACH_PROBE
-                MOVE_TO_DOCK_PROBE
-                MOVE_TO_EXTRACT_PROBE
-            """)
+            
+            self._align_z()
+
+            travel = True
+            for position in self.attach_route:
+                speed = self.travel_speed if travel else self.attach_speed
+                travel = False
+                z_pos = None if len(position) <= 2 else position[2]
+                
+                self.toolhead.manual_move([position[0], position[1], z_pos],
+                                  speed)
 
             retry += 1
 
         if self.get_probe_state() != PROBE_ATTACHED:
             raise self.printer.command_error('Probe attach failed!')
+        
+        self.gcode.respond_info("Probe attached!")
+        
+        self._align_z()
 
         if return_pos:
-            if not self._check_distance(return_pos, self.approach_distance):
-                self.toolhead.manual_move(
-                    [return_pos[0], return_pos[1], None],
-                    self.travel_speed)
-                # Do NOT return to the original Z position after attach
-                # as the probe might crash into the bed.
+            self.toolhead.manual_move(
+                [return_pos[0], return_pos[1], None],
+                self.travel_speed)
+            # Do NOT return to the original Z position after attach
+            # as the probe might crash into the bed.
 
-    def detach_probe(self, return_pos=None):
+    def dock_probe(self, return_pos=None):
         retry = 0
         while (self.get_probe_state() != PROBE_DOCKED
                and retry < self.dock_retries + 1):
-            # Call these gcodes as a script because we don't have enough
-            # structs/data to call the cmd_...() funcs and supply 'gcmd'.
-            # This method also has the advantage of calling user-written gcodes
-            # if they've been defined.
-            self.gcode.run_script_from_command("""
-                MOVE_TO_INSERT_PROBE
-                MOVE_TO_DOCK_PROBE
-                MOVE_TO_DETACH_PROBE
-            """)
+            
+            self._align_z()
+            
+            travel = True
+            for position in self.dock_route:
+                speed = self.travel_speed if travel else self.dock_speed
+                travel = False
+                z_pos = None if len(position) <= 2 else position[2]
+                
+                self.toolhead.manual_move([position[0], position[1], z_pos],
+                                  speed)
 
             retry += 1
 
         if self.get_probe_state() != PROBE_DOCKED:
-            raise self.printer.command_error('Probe detach failed!')
+            raise self.printer.command_error('Probe dock failed!')
+        
+        self.gcode.respond_info("Probe docked!")
+        
+        self._align_z()
 
         if return_pos:
-            if not self._check_distance(return_pos, self.detach_distance):
-                self.toolhead.manual_move(
-                    [return_pos[0], return_pos[1], None],
-                    self.travel_speed)
-                # Return to original Z position after detach as
-                # there's no chance of the probe crashing into the bed.
-                self.toolhead.manual_move(
-                    [None, None, return_pos[2]],
-                    self.travel_speed)
+            self.toolhead.manual_move(
+                [return_pos[0], return_pos[1], None],
+                self.travel_speed)
+            # Return to original Z position after dock as
+            # there's no chance of the probe crashing into the bed.
+            self.toolhead.manual_move(
+                [None, None, return_pos[2]],
+                self.travel_speed)
 
-    def auto_detach_probe(self, return_pos=None):
+    def auto_dock_probe(self, return_pos=None):
         if self.get_probe_state() == PROBE_DOCKED:
            return
-        if self.auto_attach_detach:
-            self.detach_probe(return_pos)
+        if self.auto_attach_dock:
+            self.dock_probe(return_pos)
 
     def auto_attach_probe(self, return_pos=None):
         if self.get_probe_state() == PROBE_ATTACHED:
            return
-        if not self.auto_attach_detach:
+        if not self.auto_attach_dock:
             raise self.printer.command_error("Cannot probe, probe is not " \
                                         "attached and auto-attach is disabled")
         self.attach_probe(return_pos)
@@ -473,62 +393,6 @@ class DockableProbe:
     #######################################################################
     # Functions for calculating points and moving the toolhead
     #######################################################################
-
-    # Move the toolhead to minimum safe distance aligned with angle
-    def _move_to_vector(self, angle):
-        x, y = self._get_point_on_vector(self.dock_position[:2],
-                                         angle,
-                                         self.approach_distance)
-        self.toolhead.manual_move([x,y,None], self.travel_speed)
-
-    # Move the toolhead to angle within minimium safe distance
-    def _align_to_vector(self, angle):
-        approach = self._get_intercept(self.toolhead.get_position(),
-                                       angle + (pi/2),
-                                       self.dock_position,
-                                       angle)
-        self.toolhead.manual_move([approach[0], approach[1], None],
-                                  self.attach_speed)
-
-    # Determine toolhead distance to dock coordinates
-    def _check_distance(self, pos=None, dist=None):
-        if not pos:
-            pos = self.toolhead.get_position()
-        dock = self.dock_position
-
-        if dist > sqrt((pos[0]-dock[0])**2 +
-                       (pos[1]-dock[1])**2 ):
-            return True
-        else:
-            return False
-
-    # Find a point on a vector line at a specific distance
-    def _get_point_on_vector(self, point, angle, magnitude=1):
-        x = point[0] - magnitude * cos(angle)
-        y = point[1] - magnitude * sin(angle)
-        return (x, y)
-
-    # Locate the intersection of two vectors
-    def _get_intercept(self, point1, angle1, point2, angle2):
-        x1, y1 = point1[:2]
-        x2, y2 = self._get_point_on_vector(point1, angle1, 10.0)
-        x3, y3 = point2[:2]
-        x4, y4 = self._get_point_on_vector(point2, angle2, 10.0)
-        det1 = ((x1 * y2) - (y1 * x2))
-        det2 = ((x3 * y4) - (y3 * x4))
-        d = ((x1 - x2) * (y3 - y4)) - ((y1 - y2) * (x3 - x4))
-        x = float((det1 * (x3 - x4)) - ((x1 - x2) * det2)) / d
-        y = float((det1 * (y3 - y4)) - ((y1 - y2) * det2)) / d
-        return (x, y)
-
-    # Determine the vector of two points
-    def _get_vector(self, point1, point2):
-        x1, y1 = point1[:2]
-        x2, y2 = point2[:2]
-        magnitude = sqrt((x2-x1)**2 + (y2-y1)**2 )
-        angle = atan2(y2-y1, x2-x1) + pi
-
-        return angle, magnitude
 
     # Align z axis to prevent crashes
     def _align_z(self):
@@ -552,9 +416,6 @@ class DockableProbe:
         if 'z' not in self._last_homed:
             raise self.printer.command_error(
                 "Cannot attach/detach probe, must home Z axis first")
-
-        self.toolhead.manual_move([None, None, self.approach_position[2]],
-                                self.lift_speed)
 
     # Hop z and return to un-homed state
     def _force_z_hop(self):
@@ -584,35 +445,32 @@ class DockableProbe:
         # point but for the latter the toolhead is already in position.
         # If the toolhead is not returned to the current position it
         # will complete the probing next to the dock.
-        return_pos = self.toolhead.get_position()
-        self.auto_attach_probe(return_pos)
+        self._return_pos = self.toolhead.get_position()
+        self.auto_attach_probe()
 
     def multi_probe_end(self):
         self.multi = MULTI_OFF
 
-        return_pos = self.toolhead.get_position()
-        # Move away from the bed to ensure the probe isn't triggered,
-        # preventing detaching in the event there's no probe/dock sensor.
-        self.toolhead.manual_move([None, None, return_pos[2]+2],
-                                  self.travel_speed)
-        self.auto_detach_probe(return_pos)
+        # Move to z hop to ensure the probe isn't triggered,
+        # preventing docking in the event there's no probe/dock sensor.
+        self._align_z()
+        self.auto_dock_probe(self._return_pos)
 
     def probe_prepare(self, hmove):
         if self.multi == MULTI_OFF or self.multi == MULTI_FIRST:
-            return_pos = self.toolhead.get_position()
-            self.auto_attach_probe(return_pos)
+            if self._return_pos is None:
+                self._return_pos = self.toolhead.get_position()
+            self.auto_attach_probe()
         if self.multi == MULTI_FIRST:
             self.multi = MULTI_ON
 
     def probe_finish(self, hmove):
         self.wait_trigger_complete.wait()
         if self.multi == MULTI_OFF:
-            return_pos = self.toolhead.get_position()
-            # Move away from the bed to ensure the probe isn't triggered,
-            # preventing detaching in the event there's no probe/dock sensor.
-            self.toolhead.manual_move([None, None, return_pos[2]+2],
-                                      self.travel_speed)
-            self.auto_detach_probe(return_pos)
+            # Move to z hop to ensure the probe isn't triggered,
+            # preventing docking in the event there's no probe/dock sensor.
+            self._align_z()
+            self.auto_dock_probe(self._return_pos)
 
     def home_start(self, print_time, sample_time, sample_count, rest_time,
                    triggered=True):
